@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo fmt --check
+      - run: cargo test --locked
+      - name: Known-secret bundle regression
+        shell: bash
+        run: |
+          mkdir -p /tmp/crashpack-source
+          cat > /tmp/crashpack-source/crashpack.yml <<'EOF'
+          version: 1
+          application: { name: FixtureApp, version: test }
+          collect:
+            system: false
+            runtime: false
+            files: [{ path: known-secrets.log, max_bytes: 100000 }]
+          redaction: { privacy_level: STRICT, emails: true, ip_addresses: true, paths: true }
+          limits: { max_bundle_bytes: 1000000, command_timeout_secs: 2 }
+          EOF
+          cat > /tmp/crashpack-source/known-secrets.log <<'EOF'
+          Authorization: Bearer super-secret-bearer-value-987654321
+          customer=alice@example.com remote=203.0.113.42
+          jwt=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.very-secret-signature
+          aws=AKIAIOSFODNN7EXAMPLE
+          url=https://service.example/debug?token=unshareable-query-token-123
+          -----BEGIN PRIVATE KEY-----
+          private-key-material-never-share
+          -----END PRIVATE KEY-----
+          EOF
+          cargo run --locked -- collect --config /tmp/crashpack-source/crashpack.yml --output /tmp/crashpack-fixture
+          bundle=$(find /tmp/crashpack-fixture -name '*.zip' -print -quit)
+          ! unzip -p "$bundle" | grep -E 'super-secret-bearer-value|alice@example\.com|AKIAIOSFODNN7EXAMPLE|private-key-material|unshareable-query-token'
