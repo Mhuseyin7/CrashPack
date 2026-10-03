@@ -1,0 +1,25 @@
+version: 1
+application:
+  name: MyApplication
+  version: unknown
+collect:
+  system: true
+  runtime: true
+  docker: false # When enabled, collects version and container names/state only.
+  environment:
+    names: [] # Names only by default.
+    values_allowlist: [] # Values require explicit opt-in.
+  network:
+    endpoints: [] # Explicit host:port reachability/DNS checks only; no scanning.
+  application_metadata: {} # Safe build/feature/plugin metadata only.
+  files: [] # Explicit paths only; add e.g. { path: ./logs/app.log, max_bytes: 5000000 }
+  commands: [] # Executable and argv only; shells are never used.
+redaction:
+  privacy_level: STRICT
+  emails: true
+  ip_addresses: true
+  paths: true
+  custom_patterns: []
+limits:
+  max_bundle_bytes: 52428800
+  command_timeout_secs: 10
