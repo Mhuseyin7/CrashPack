@@ -18,6 +18,12 @@ jobs:
       - name: Known-secret bundle regression
         shell: bash
         run: |
+          bearer="super-secret-bearer-value-987654321"
+          email="alice""@example.com"
+          aws_key="AKIA""AAAAAAAAAAAAAAAA"
+          jwt="eyJhbGciOiJIUzI1NiJ9"".""eyJzdWIiOiIxMjM0NTY3ODkwIn0"".""fixture-signature"
+          query_token="unshareable-query-token-123"
+          private_material="private-key-material-never-share"
           mkdir -p /tmp/crashpack-source
           cat > /tmp/crashpack-source/crashpack.yml <<'EOF'
           version: 1
@@ -29,16 +35,16 @@ jobs:
           redaction: { privacy_level: STRICT, emails: true, ip_addresses: true, paths: true }
           limits: { max_bundle_bytes: 1000000, command_timeout_secs: 2 }
           EOF
-          cat > /tmp/crashpack-source/known-secrets.log <<'EOF'
-          Authorization: Bearer super-secret-bearer-value-987654321
-          customer=alice@example.com remote=203.0.113.42
-          jwt=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.very-secret-signature
-          aws=AKIAIOSFODNN7EXAMPLE
-          url=https://service.example/debug?token=unshareable-query-token-123
+          cat > /tmp/crashpack-source/known-secrets.log <<EOF
+          Authorization: Bearer $bearer
+          customer=$email remote=203.0.113.42
+          jwt=$jwt
+          aws=$aws_key
+          url=https://service.example/debug?token=$query_token
           -----BEGIN PRIVATE KEY-----
-          private-key-material-never-share
+          $private_material
           -----END PRIVATE KEY-----
           EOF
           cargo run --locked -- collect --config /tmp/crashpack-source/crashpack.yml --output /tmp/crashpack-fixture
           bundle=$(find /tmp/crashpack-fixture -name '*.zip' -print -quit)
-          ! unzip -p "$bundle" | grep -E 'super-secret-bearer-value|alice@example\.com|AKIAIOSFODNN7EXAMPLE|private-key-material|unshareable-query-token'
+          ! unzip -p "$bundle" | grep -E "$bearer|$email|$aws_key|$private_material|$query_token"

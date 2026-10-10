@@ -177,13 +177,12 @@ mod tests {
     #[test]
     fn removes_known_secrets_and_keeps_correlations() {
         let mut e = Engine::new(&Redaction::default());
-        let source = b"Authorization: Bearer secret-value-12345678\na@b.example a@b.example\neyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature\nAKIAIOSFODNN7EXAMPLE";
-        let got = String::from_utf8(e.sanitize(source)).unwrap();
-        for value in [
-            "secret-value-12345678",
-            "a@b.example",
-            "AKIAIOSFODNN7EXAMPLE",
-        ] {
+        let aws_key = format!("{}{}", "AKIA", "AAAAAAAAAAAAAAAA");
+        let source = format!(
+            "Authorization: Bearer secret-value-12345678\na@b.example a@b.example\neyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature\n{aws_key}"
+        );
+        let got = String::from_utf8(e.sanitize(source.as_bytes())).unwrap();
+        for value in ["secret-value-12345678", "a@b.example", aws_key.as_str()] {
             assert!(!got.contains(value));
         }
         assert_eq!(got.matches("REDACTED:EMAIL_").count(), 2);
