@@ -171,6 +171,15 @@ fn bundle_max() -> u64 {
 fn timeout() -> u64 {
     10
 }
+fn validate_byte_limit(name: &str, value: u64) -> Result<()> {
+    if value == 0 {
+        bail!("{name} must be positive")
+    }
+    if value > i64::MAX as u64 || value > usize::MAX as u64 {
+        bail!("{name} is too large for this platform")
+    }
+    Ok(())
+}
 impl Default for Limits {
     fn default() -> Self {
         Self {
@@ -192,21 +201,18 @@ impl Config {
         if self.application.name.trim().is_empty() {
             bail!("application.name cannot be empty")
         }
+        validate_byte_limit("limits.max_bundle_bytes", self.limits.max_bundle_bytes)?;
         for f in &self.collect.files {
             if f.path.is_empty() || Path::new(&f.path).is_absolute() || f.path.contains("..") {
                 bail!("file path must be a relative path without '..': {}", f.path)
             }
-            if f.max_bytes == 0 {
-                bail!("file max_bytes must be positive")
-            }
+            validate_byte_limit("file max_bytes", f.max_bytes)?;
         }
         for c in &self.collect.commands {
             if c.name.trim().is_empty() || c.name.contains(['/', '\\', '\0']) {
                 bail!("command name must be non-empty and path-safe")
             }
-            if c.max_bytes == 0 {
-                bail!("command max_bytes must be positive")
-            }
+            validate_byte_limit("command max_bytes", c.max_bytes)?;
             if c.executable.trim().is_empty()
                 || c.executable.contains(['/', '\\'])
                 || c.executable.chars().any(char::is_whitespace)

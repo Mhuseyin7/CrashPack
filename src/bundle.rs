@@ -15,7 +15,7 @@ use std::{
     process::{Command, Stdio},
     time::Duration,
 };
-use sysinfo::System;
+use sysinfo::{Disks, System};
 use zip::{write::SimpleFileOptions, CompressionMethod, ZipArchive, ZipWriter};
 
 #[derive(Serialize)]
@@ -133,7 +133,10 @@ fn command_output(executable: &str, args: &[String], max: u64, seconds: u64) -> 
 fn system_info() -> String {
     let mut s = System::new_all();
     s.refresh_all();
-    format!("os: {}\nkernel: {}\narchitecture: {}\ncpu_count: {}\ntotal_memory_bytes: {}\navailable_memory_bytes: {}\nuptime_seconds: {}\n", System::name().unwrap_or_else(|| "unknown".into()), System::kernel_version().unwrap_or_else(|| "unknown".into()), std::env::consts::ARCH, s.cpus().len(), s.total_memory(), s.available_memory(), System::uptime())
+    let disks = Disks::new_with_refreshed_list();
+    let total_disk_bytes: u64 = disks.iter().map(|disk| disk.total_space()).sum();
+    let available_disk_bytes: u64 = disks.iter().map(|disk| disk.available_space()).sum();
+    format!("os: {}\nkernel: {}\narchitecture: {}\ncpu_count: {}\ntotal_memory_bytes: {}\navailable_memory_bytes: {}\ntotal_disk_bytes: {}\navailable_disk_bytes: {}\nuptime_seconds: {}\n", System::name().unwrap_or_else(|| "unknown".into()), System::kernel_version().unwrap_or_else(|| "unknown".into()), std::env::consts::ARCH, s.cpus().len(), s.total_memory(), s.available_memory(), total_disk_bytes, available_disk_bytes, System::uptime())
 }
 fn collector(
     name: impl Into<String>,
