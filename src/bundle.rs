@@ -49,6 +49,9 @@ fn hash(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 fn safe_archive_path(name: &str) -> bool {
+    if name.is_empty() || name.contains(['\\', '\0']) {
+        return false;
+    }
     let p = Path::new(name);
     !p.is_absolute()
         && !p.components().any(|c| {
@@ -466,6 +469,8 @@ pub fn collect(cfg: &Config, root: &Path, output: &Path) -> Result<PathBuf> {
     }
     let summary = engine.summary().clone();
     println!("✓ {} redactions applied", summary.total());
+    let report = serde_json::to_vec_pretty(&engine.summary())?;
+    entries.insert("redaction-report.json".into(), report);
     let mut checksums = BTreeMap::new();
     for (name, data) in &entries {
         checksums.insert(name.clone(), hash(data));
@@ -487,10 +492,6 @@ pub fn collect(cfg: &Config, root: &Path, output: &Path) -> Result<PathBuf> {
     };
     let mbytes = serde_json::to_vec_pretty(&manifest)?;
     entries.insert("manifest.json".into(), mbytes);
-    entries.insert(
-        "redaction-report.json".into(),
-        serde_json::to_vec_pretty(&manifest.redaction_summary)?,
-    );
     fs::create_dir_all(output)?;
     let file = output.join(format!(
         "crashpack-{}.zip",
@@ -504,11 +505,20 @@ pub fn collect(cfg: &Config, root: &Path, output: &Path) -> Result<PathBuf> {
         zip.write_all(&data)?;
     }
     zip.finish()?;
+    if fs::metadata(&file)?.len() > cfg.limits.max_bundle_bytes {
+        fs::remove_file(&file)?;
+        bail!("final ZIP exceeded max_bundle_bytes; no bundle was retained")
+    }
     Ok(file)
 }
 pub fn inspect(path: &Path) -> Result<()> {
     let f = File::open(path)?;
     let mut zip = ZipArchive::new(f)?;
+    for index in 0..zip.len() {
+        if !safe_archive_path(zip.by_index(index)?.name()) {
+            bail!("unsafe archive path")
+        }
+    }
     let mut m = String::new();
     zip.by_name("manifest.json")
         .context("bundle has no manifest.json")?
@@ -536,6 +546,13 @@ pub fn verify(path: &Path) -> Result<()> {
         zip.by_name(name)?.read_to_end(&mut data)?;
         if want.as_str() != Some(&hash(&data)) {
             bail!("checksum mismatch for {name}")
+        }
+    }
+    let listed: std::collections::BTreeSet<_> = sums.keys().map(String::as_str).collect();
+    for index in 0..zip.len() {
+        let name = zip.by_index(index)?.name().to_owned();
+        if name != "manifest.json" && !listed.contains(name.as_str()) {
+            bail!("archive entry is not covered by manifest checksums: {name}")
         }
     }
     Ok(())

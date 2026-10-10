@@ -201,6 +201,12 @@ impl Config {
             }
         }
         for c in &self.collect.commands {
+            if c.name.trim().is_empty() || c.name.contains(['/', '\\', '\0']) {
+                bail!("command name must be non-empty and path-safe")
+            }
+            if c.max_bytes == 0 {
+                bail!("command max_bytes must be positive")
+            }
             if c.executable.trim().is_empty()
                 || c.executable.contains(['/', '\\'])
                 || c.executable.chars().any(char::is_whitespace)
@@ -226,8 +232,9 @@ impl Config {
             if endpoint.name.trim().is_empty()
                 || endpoint.host.trim().is_empty()
                 || endpoint.port == 0
+                || endpoint.name.contains(['/', '\\', '\0'])
             {
-                bail!("network endpoints require a name, host, and non-zero port")
+                bail!("network endpoints require a path-safe name, host, and non-zero port")
             }
         }
         for (key, value) in &self.collect.application_metadata {
@@ -236,7 +243,10 @@ impl Config {
             }
         }
         for p in &self.redaction.custom_patterns {
-            regex::Regex::new(p).context("invalid custom redaction regex")?;
+            let regex = regex::Regex::new(p).context("invalid custom redaction regex")?;
+            if regex.is_match("") {
+                bail!("custom redaction regex must not match an empty string")
+            }
         }
         Ok(())
     }
@@ -254,6 +264,20 @@ mod tests {
         fs::write(&path, "version: 1\napplication: { name: test }\ncollect:\n  files: [{ path: ../secret.log }]\n").unwrap();
         assert!(Config::from_path(&path).is_err());
         fs::write(&path, "version: 1\napplication: { name: test }\ncollect:\n  commands: [{ name: nope, executable: 'sh -c' }]\n").unwrap();
+        assert!(Config::from_path(&path).is_err());
+    }
+
+    #[test]
+    fn rejects_empty_matching_redaction_rules_and_unsafe_names() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("crashpack.yml");
+        fs::write(
+            &path,
+            "version: 1\napplication: { name: test }\nredaction: { custom_patterns: ['.*'] }\n",
+        )
+        .unwrap();
+        assert!(Config::from_path(&path).is_err());
+        fs::write(&path, "version: 1\napplication: { name: test }\ncollect:\n  commands: [{ name: 'bad/name', executable: echo }]\n").unwrap();
         assert!(Config::from_path(&path).is_err());
     }
 }
