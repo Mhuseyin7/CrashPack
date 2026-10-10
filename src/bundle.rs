@@ -7,7 +7,7 @@ use chrono::Utc;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fs::{self, File},
     io::{Read, Seek, SeekFrom, Write},
     net::{TcpStream, ToSocketAddrs},
@@ -517,9 +517,14 @@ pub fn collect(cfg: &Config, root: &Path, output: &Path) -> Result<PathBuf> {
 pub fn inspect(path: &Path) -> Result<()> {
     let f = File::open(path)?;
     let mut zip = ZipArchive::new(f)?;
+    let mut seen = BTreeSet::new();
     for index in 0..zip.len() {
-        if !safe_archive_path(zip.by_index(index)?.name()) {
+        let name = zip.by_index(index)?.name().to_owned();
+        if !safe_archive_path(&name) {
             bail!("unsafe archive path")
+        }
+        if !seen.insert(name) {
+            bail!("duplicate archive path")
         }
     }
     let mut m = String::new();
@@ -533,9 +538,14 @@ pub fn inspect(path: &Path) -> Result<()> {
 pub fn verify(path: &Path) -> Result<()> {
     let f = File::open(path)?;
     let mut zip = ZipArchive::new(f)?;
+    let mut seen = BTreeSet::new();
     for i in 0..zip.len() {
-        if !safe_archive_path(zip.by_index(i)?.name()) {
+        let name = zip.by_index(i)?.name().to_owned();
+        if !safe_archive_path(&name) {
             bail!("unsafe archive path")
+        }
+        if !seen.insert(name) {
+            bail!("duplicate archive path")
         }
     }
     let mut m = String::new();
