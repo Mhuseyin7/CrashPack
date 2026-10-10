@@ -139,7 +139,7 @@ impl Engine {
             // with the standard library handles compressed and IPv4-mapped IPv6 forms.
             let re = Regex::new(r"(?i)[0-9a-f:.]{2,}").unwrap();
             let (replaced, count) = self.replace_selected(&re, s, "IP_ADDRESS", |candidate| {
-                candidate.parse::<IpAddr>().is_ok()
+                candidate.trim_end_matches('.').parse::<IpAddr>().is_ok()
             });
             s = replaced;
             if count > 0 {
@@ -208,5 +208,13 @@ mod tests {
         assert!(!result.contains("2001:db8::1"));
         assert!(!result.contains("::ffff:192.0.2.1"));
         assert_eq!(engine.summary().ip_address, 2);
+    }
+
+    #[test]
+    fn redacts_ipv4_before_sentence_punctuation() {
+        let mut engine = Engine::new(&Redaction::default());
+        let result = String::from_utf8(engine.sanitize(b"remote=203.0.113.42.")).unwrap();
+        assert!(!result.contains("203.0.113.42"));
+        assert_eq!(engine.summary().ip_address, 1);
     }
 }
