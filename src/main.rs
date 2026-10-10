@@ -70,6 +70,12 @@ fn load(path: &Path) -> Result<Config> {
     Config::from_path(path).with_context(|| format!("invalid configuration: {}", path.display()))
 }
 
+fn config_root(path: &Path) -> &Path {
+    path.parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."))
+}
+
 fn run() -> Result<()> {
     match Cli::parse().command {
         Command::Init { config } => {
@@ -84,13 +90,13 @@ fn run() -> Result<()> {
         }
         Command::Collect { config, output } => {
             let cfg = load(&config)?;
-            let path = bundle::collect(&cfg, config.parent().unwrap_or(Path::new(".")), &output)?;
+            let path = bundle::collect(&cfg, config_root(&config), &output)?;
             println!("\nBundle: {}", path.display());
             println!("Local only: CrashPack never uploads data.");
         }
         Command::Preview { config } => {
             let cfg = load(&config)?;
-            bundle::preview(&cfg, config.parent().unwrap_or(Path::new(".")))?;
+            bundle::preview(&cfg, config_root(&config))?;
         }
         Command::Inspect { bundle } => bundle::inspect(&bundle)?,
         Command::Verify { bundle } => {
@@ -107,6 +113,14 @@ fn run() -> Result<()> {
             config,
         } => {
             let cfg = load(&config)?;
+            let input_size = fs::metadata(&file)?.len();
+            if input_size > cfg.limits.max_bundle_bytes {
+                bail!(
+                    "redact input is {} bytes, above max_bundle_bytes ({})",
+                    input_size,
+                    cfg.limits.max_bundle_bytes
+                );
+            }
             let bytes = fs::read(&file)?;
             let mut engine = redact::Engine::new(&cfg.redaction);
             let clean = engine.sanitize(&bytes);
