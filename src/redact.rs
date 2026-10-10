@@ -1,6 +1,6 @@
 use crate::config::Redaction;
 use regex::Regex;
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, net::IpAddr};
 
 #[derive(Debug, Default, serde::Serialize, Clone)]
 pub struct Summary {
@@ -57,19 +57,36 @@ impl Engine {
             summary: Summary::default(),
         }
     }
-    fn replace_stable(&mut self, re: &Regex, text: String, class: &str) -> String {
+    fn replace_selected<F>(
+        &mut self,
+        re: &Regex,
+        text: String,
+        class: &str,
+        should_replace: F,
+    ) -> (String, u64)
+    where
+        F: Fn(&str) -> bool,
+    {
         let mut result = String::new();
         let mut previous = 0;
+        let mut count = 0;
         for m in re.find_iter(&text) {
+            if !should_replace(m.as_str()) {
+                continue;
+            }
             result.push_str(&text[previous..m.start()]);
             let raw = m.as_str().to_string();
             let next = self.ids.len() + 1;
             let id = *self.ids.entry(format!("{class}:{raw}")).or_insert(next);
             result.push_str(&format!("<REDACTED:{class}_{id}>"));
             previous = m.end();
+            count += 1;
         }
         result.push_str(&text[previous..]);
-        result
+        (result, count)
+    }
+    fn replace_stable(&mut self, re: &Regex, text: String, class: &str) -> String {
+        self.replace_selected(re, text, class, |_| true).0
     }
     pub fn sanitize(&mut self, data: &[u8]) -> Vec<u8> {
         let mut s = String::from_utf8_lossy(data).into_owned();
@@ -118,10 +135,14 @@ impl Engine {
             }
         }
         if self.config.ip_addresses {
-            let re = Regex::new(r"\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b|(?i)\b(?:[0-9a-f]{1,4}:){2,7}[0-9a-f]{1,4}\b").unwrap();
-            let count = re.find_iter(&s).count() as u64;
+            // Candidate matching is deliberately broader than an IPv6 regex; parsing
+            // with the standard library handles compressed and IPv4-mapped IPv6 forms.
+            let re = Regex::new(r"(?i)[0-9a-f:.]{2,}").unwrap();
+            let (replaced, count) = self.replace_selected(&re, s, "IP_ADDRESS", |candidate| {
+                candidate.parse::<IpAddr>().is_ok()
+            });
+            s = replaced;
             if count > 0 {
-                s = self.replace_stable(&re, s, "IP_ADDRESS");
                 self.summary.ip_address += count;
             }
         }
@@ -176,5 +197,16 @@ mod tests {
             let result = String::from_utf8(engine.sanitize(secret.as_bytes())).unwrap();
             assert!(!result.contains(&secret), "secret {n} survived redaction");
         }
+    }
+
+    #[test]
+    fn redacts_compressed_ipv6_addresses() {
+        let mut engine = Engine::new(&Redaction::default());
+        let result =
+            String::from_utf8(engine.sanitize(b"remote=2001:db8::1 mapped=::ffff:192.0.2.1"))
+                .unwrap();
+        assert!(!result.contains("2001:db8::1"));
+        assert!(!result.contains("::ffff:192.0.2.1"));
+        assert_eq!(engine.summary().ip_address, 2);
     }
 }
